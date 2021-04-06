@@ -1603,14 +1603,20 @@ Result<SurfaceSupportDetails> query_surface_support_details(VkPhysicalDevice phy
 	return SurfaceSupportDetails{ capabilities, formats, present_modes };
 }
 
-VkSurfaceFormatKHR find_surface_format(std::vector<VkSurfaceFormatKHR> const& available_formats,
-    std::vector<VkSurfaceFormatKHR> const& desired_formats) {
+VkSurfaceFormatKHR find_surface_format(VkPhysicalDevice phys_device,
+    std::vector<VkSurfaceFormatKHR> const& available_formats,
+    std::vector<VkSurfaceFormatKHR> const& desired_formats,
+    VkFormatFeatureFlags feature_flags) {
 	for (auto const& desired_format : desired_formats) {
 		for (auto const& available_format : available_formats) {
 			// finds the first format that is desired and available
 			if (desired_format.format == available_format.format &&
 			    desired_format.colorSpace == available_format.colorSpace) {
-				return desired_format;
+				VkFormatProperties properties;
+				detail::vulkan_functions().fp_vkGetPhysicalDeviceFormatProperties(
+				    phys_device, desired_format.format, &properties);
+				if ((properties.optimalTilingFeatures & feature_flags) == feature_flags)
+					return desired_format;
 			}
 		}
 	}
@@ -1720,7 +1726,8 @@ detail::Result<Swapchain> SwapchainBuilder::build() const {
 	if (surface_support.capabilities.maxImageCount > 0 && image_count > surface_support.capabilities.maxImageCount) {
 		image_count = surface_support.capabilities.maxImageCount;
 	}
-	VkSurfaceFormatKHR surface_format = detail::find_surface_format(surface_support.formats, desired_formats);
+	VkSurfaceFormatKHR surface_format = detail::find_surface_format(
+	    info.physical_device, surface_support.formats, desired_formats, info.format_feature_flags);
 
 	VkExtent2D extent =
 	    detail::find_extent(surface_support.capabilities, info.desired_width, info.desired_height);
@@ -1882,6 +1889,18 @@ SwapchainBuilder& SwapchainBuilder::add_image_usage_flags(VkImageUsageFlags usag
 }
 SwapchainBuilder& SwapchainBuilder::use_default_image_usage_flags() {
 	info.image_usage_flags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	return *this;
+}
+SwapchainBuilder& SwapchainBuilder::set_format_feature_flags(VkFormatFeatureFlags feature_flags) {
+	info.format_feature_flags = feature_flags;
+	return *this;
+}
+SwapchainBuilder& SwapchainBuilder::add_format_feature_flags(VkFormatFeatureFlags feature_flags) {
+	info.format_feature_flags = info.format_feature_flags | feature_flags;
+	return *this;
+}
+SwapchainBuilder& SwapchainBuilder::use_default_format_feature_flags() {
+	info.format_feature_flags = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 	return *this;
 }
 SwapchainBuilder& SwapchainBuilder::set_image_array_layer_count(uint32_t array_layer_count) {
